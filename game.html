@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Warlords HTML5</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        canvas { display: block; background: #000; }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Game Constants
+        const CASTLE_SIZE = 100;
+        const PADDLE_WIDTH = 40;
+        const PADDLE_HEIGHT = 15;
+        const BALL_RADIUS = 6;
+        const BRICK_WIDTH = 20;
+        const BRICK_HEIGHT = 10;
+        const BRICKS_PER_CASTLE = 10;
+
+        // Game State
+        let gameRunning = true;
+        const players = [];
+        const ball = { x: 400, y: 300, dx: 5, dy: 5, radius: BALL_RADIUS };
+        const keys = { left: false, right: false, space: false };
+
+        // Initialize Players
+        function initPlayers() {
+            players.push(createPlayer(750, 550, '#00ff00', Math.PI, Math.PI * 1.5)); // Bottom-right
+            players.push(createPlayer(750, 50, '#ff0000', Math.PI * 1.5, Math.PI * 2)); // Top-right
+            players.push(createPlayer(50, 50, '#0000ff', 0, Math.PI * 0.5)); // Top-left
+            players.push(createPlayer(50, 550, '#ffff00', Math.PI * 0.5, Math.PI)); // Bottom-left
+        }
+
+        function createPlayer(x, y, color, minAngle, maxAngle) {
+            return {
+                x, y,
+                castle: createCastle(x, y, color),
+                paddle: { width: PADDLE_WIDTH, height: PADDLE_HEIGHT },
+                color,
+                angle: minAngle,
+                minAngle,
+                maxAngle,
+                isAI: color !== '#00ff00',
+                holdingBall: false
+            };
+        }
+
+        function createCastle(x, y, color) {
+            const castle = {
+                x, y, width: CASTLE_SIZE, height: CASTLE_SIZE, color, blocks: []
+            };
+            for (let i = 0; i < BRICKS_PER_CASTLE; i++) {
+                castle.blocks.push({ x: x + (i % 5) * BRICK_WIDTH, y: y + Math.floor(i / 5) * BRICK_HEIGHT, alive: true });
+            }
+            return castle;
+        }
+
+        // Input Handling
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') keys.left = true;
+            if (e.key === 'ArrowRight') keys.right = true;
+            if (e.key === ' ') keys.space = true;
+        });
+        document.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowLeft') keys.left = false;
+            if (e.key === 'ArrowRight') keys.right = false;
+            if (e.key === ' ') keys.space = false;
+        });
+
+        // Game Logic
+        function update() {
+            if (!gameRunning) return;
+            movePaddles();
+            moveBall();
+            checkCollisions();
+            checkWinCondition();
+        }
+
+        function movePaddles() {
+            players.forEach(player => {
+                if (player.isAI) {
+                    // AI movement
+                    const targetAngle = Math.atan2(ball.y - (player.y + CASTLE_SIZE / 2), ball.x - (player.x + CASTLE_SIZE / 2));
+                    player.angle = Math.max(player.minAngle, Math.min(player.maxAngle, targetAngle));
+                } else {
+                    // Player movement
+                    if (keys.left) player.angle = Math.max(player.minAngle, player.angle - 0.05);
+                    if (keys.right) player.angle = Math.min(player.maxAngle, player.angle + 0.05);
+                }
+
+                // Update paddle position
+                const radius = CASTLE_SIZE * 0.75;
+                player.paddleX = player.x + CASTLE_SIZE / 2 + Math.cos(player.angle) * radius - PADDLE_WIDTH / 2;
+                player.paddleY = player.y + CASTLE_SIZE / 2 + Math.sin(player.angle) * radius - PADDLE_HEIGHT / 2;
+            });
+        }
+
+        function moveBall() {
+            if (players[0].holdingBall) {
+                if (!keys.space) {
+                    players[0].holdingBall = false;
+                    ball.dx = Math.cos(players[0].angle) * 5;
+                    ball.dy = Math.sin(players[0].angle) * 5;
+                } else {
+                    ball.x = players[0].paddleX + PADDLE_WIDTH / 2;
+                    ball.y = players[0].paddleY - BALL_RADIUS;
+                }
+            } else {
+                ball.x += ball.dx;
+                ball.y += ball.dy;
+
+                // Wall collisions
+                if (ball.x < 0 || ball.x > canvas.width) ball.dx *= -1;
+                if (ball.y < 0 || ball.y > canvas.height) ball.dy *= -1;
+            }
+        }
+
+        function checkCollisions() {
+            players.forEach(player => {
+                // Paddle collision
+                if (ball.x > player.paddleX && ball.x < player.paddleX + PADDLE_WIDTH &&
+                    ball.y > player.paddleY && ball.y < player.paddleY + PADDLE_HEIGHT) {
+                    if (player === players[0] && keys.space) {
+                        player.holdingBall = true;
+                    } else {
+                        ball.dy *= -1;
+                    }
+                }
+
+                // Castle collision
+                player.castle.blocks.forEach(block => {
+                    if (block.alive && ball.x > block.x && ball.x < block.x + BRICK_WIDTH &&
+                        ball.y > block.y && ball.y < block.y + BRICK_HEIGHT) {
+                        block.alive = false;
+                        ball.dy *= -1;
+                    }
+                });
+            });
+        }
+
+        function checkWinCondition() {
+            const alivePlayers = players.filter(player => player.castle.blocks.some(block => block.alive));
+            if (alivePlayers.length === 1) {
+                gameRunning = false;
+                alert(alivePlayers[0].color + ' Wins!');
+            }
+        }
+
+        // Rendering
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw castles
+            players.forEach(player => {
+                player.castle.blocks.forEach(block => {
+                    if (block.alive) {
+                        ctx.fillStyle = player.color;
+                        ctx.fillRect(block.x, block.y, BRICK_WIDTH, BRICK_HEIGHT);
+                    }
+                });
+            });
+
+            // Draw paddles
+            players.forEach(player => {
+                ctx.fillStyle = player.color;
+                ctx.fillRect(player.paddleX, player.paddleY, PADDLE_WIDTH, PADDLE_HEIGHT);
+            });
+
+            // Draw ball
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, BALL_RADIUS, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffffff';
+            ctx.fill();
+        }
+
+        // Game Loop
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Start Game
+        initPlayers();
+        gameLoop();
+    </script>
+</body>
+</html>
