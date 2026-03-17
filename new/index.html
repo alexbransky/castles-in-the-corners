@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Castle Defender</title>
+  <style>
+    body { margin: 0; background: #2d3748; display: flex; justify-content: center; align-items: center; height: 100vh; flex-direction: column; font-family: Arial; }
+    canvas { display: block; margin: 0 auto; background: #1a202c; }
+    h1 { color: white; }
+    p { color: #a0aec0; }
+  </style>
+</head>
+<body>
+  <h1>Castle Defender</h1>
+  <p>Use A/D keys to move your glove (bottom). Press SPACE to catch and release the ball.</p>
+  <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+  <script>
+    // Self-contained Canvas implementation (no Phaser dependency)
+    (function() {
+      const canvas = document.getElementById('gameCanvas');
+      const ctx = canvas.getContext('2d');
+      
+      // Game constants
+      const BLOCK_SIZE = 20;
+      const CASTLE_SIZE = 100;
+      const BALL_RADIUS = 10;
+      const BALL_SPEED = 5;
+      const GLOVE_WIDTH = 60;
+      const GLOVE_HEIGHT = 20;
+      
+      // Game state
+      let gameStarted = false;
+      let castles = [];
+      let gloves = [];
+      let ball = null;
+      let keys = { left: false, right: false, space: false, spaceReleased: true };
+      
+      // Initialize game
+      function init() {
+        // Create castles
+        const castleColors = ['#ef4444', '#3b82f6', '#22c55e', '#eab308']; // Red, Blue, Green, Yellow
+        const positions = [
+          { x: 0, y: 0 },
+          { x: canvas.width - CASTLE_SIZE, y: 0 },
+          { x: 0, canvas.height - CASTLE_SIZE },
+          { x: canvas.width - CASTLE_SIZE, canvas.height - CASTLE_SIZE }
+        ];
+        
+        // Create castles with blocks
+        positions.forEach((pos, i) => {
+          const castle = {
+            x: pos.x,
+            y: pos.y,
+            blocks: [],
+            color: castleColors[i]
+          };
+          
+          // Add blocks
+          for (let j = 0; j < 10; j++) {
+            const row = Math.floor(j / 5);
+            const col = j % 5;
+            castle.blocks.push({
+              x: castle.x + col * BLOCK_SIZE,
+              y: castle.y + row * BLOCK_SIZE
+            });
+          }
+          castles.push(castle);
+        });
+        
+        // Create gloves
+        createGloves();
+        
+        // Create ball
+        ball = {
+          x: canvas.width / 2,
+          y: canvas.height / 2,
+          dx: BALL_SPEED,
+          dy: BALL_SPEED,
+          radius: BALL_RADIUS,
+          held: false,
+          heldBy: null
+        };
+        
+        // Set up event listeners
+        setupInputHandlers();
+        
+        // Start game loop
+        requestAnimationFrame(gameLoop);
+      }
+      
+      function createGloves() {
+        // Position definitions for gloves
+        const gloveDefinitions = [
+          // Red glove (top left)
+          {
+            position: 'top',
+            color: castles[0].color,
+            centerX: CASTLE_SIZE / 2,
+            centerY: CASTLE_SIZE / 2,
+            angle: Math.PI / 4,
+            radius: CASTLE_SIZE + 30,
+            minAngle: 0,
+            maxAngle: Math.PI / 2,
+            castleIndex: 0
+          },
+          // Blue glove (top right)
+          {
+            position: 'top',
+            color: castles[1].color,
+            centerX: canvas.width - CASTLE_SIZE / 2,
+            centerY: CASTLE_SIZE / 2,
+            angle: (3 * Math.PI) / 4,
+            radius: CASTLE_SIZE + 30,
+            minAngle: Math.PI / 2,
+            maxAngle: Math.PI,
+            castleIndex: 1
+          },
+          // Green glove (bottom left)
+          {
+            position: 'bottom',
+            color: castles[2].color,
+            centerX: CASTLE_SIZE / 2,
+            centerY: canvas.height - CASTLE_SIZE / 2,
+            angle: (7 * Math.PI) / 4,
+            radius: CASTLE_SIZE + 30,
+            minAngle: (3 * Math.PI) / 2,
+            maxAngle: 2 * Math.PI,
+            castleIndex: 2
+          },
+          // Yellow glove (bottom right)
+          {
+            position: 'bottom',
+            color: castles[3].color,
+            centerX: canvas.width - CASTLE_SIZE / 2,
+            centerY: canvas.height - CASTLE_SIZE / 2,
+            angle: (5 * Math.PI) / 4,
+            radius: CASTLE_SIZE + 30,
+            minAngle: Math.PI,
+            maxAngle: (3 * Math.PI) / 2,
+            castleIndex: 3
+          }
+        ];
+        
+        // Create gloves from definitions
+        gloveDefinitions.forEach(def => {
+          const x = def.centerX + Math.cos(def.angle) * def.radius;
+          const y = def.centerY + Math.sin(def.angle) * def.radius;
+          
+          // Adjust position based on quadrant
+          const adjustedX = def.castleIndex === 1 || def.castleIndex === 3 ? x - GLOVE_WIDTH : x;
+          const adjustedY = def.castleIndex === 2 || def.castleIndex === 3 ? y - GLOVE_HEIGHT : y;
+          
+          const glove = {
+            x: adjustedX,
+            y: adjustedY,
+            width: GLOVE_WIDTH,
+            height: GLOVE_HEIGHT,
+            direction: 0,
+            hasBall: false,
+            position: def.position,
+            color: def.color,
+            centerX: def.centerX,
+            centerY: def.centerY,
+            angle: def.angle,
+            radius: def.radius,
+            minAngle: def.minAngle,
+            maxAngle: def.maxAngle,
+            castleIndex: def.castleIndex
+          };
+          
+          gloves.push(glove);
+        });
+      }
+      
+      function setupInputHandlers() {
+        window.addEventListener('keydown', (e) => {
+          if (!gameStarted) {
+            gameStarted = true;
+            return;
+          }
+          
+          if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') keys.left = true;
+          if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') keys.right = true;
+          if (e.key === ' ') keys.space = true;
+        });
+        
+        window.addEventListener('keyup', (e) => {
+          if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') keys.left = false;
+          if (e.key === 'd' || e.key === 'D' || e.key === 'ArrowRight') keys.right = false;
+          if (e.key === ' ') {
+            keys.space = false;
+            keys.spaceReleased = true;
+          }
+        });
+      }
+      
+      function gameLoop() {
+        update();
+        render();
+        requestAnimationFrame(gameLoop);
+      }
+      
+      function update() {
+        if (!gameStarted) return;
+        
+        // Update game logic here
+        updateGloves();
+        updateBall();
+        checkCollisions();
+      }
+      
+      function updateGloves() {
+        // Player glove (bottom right)
+        const playerGlove = gloves[3];
+        const prevAngle = playerGlove.angle;
+        
+        if (keys.left) {
+          playerGlove.angle = Math.max(playerGlove.minAngle, playerGlove.angle - 0.04);
+        }
+        if (keys.right) {
+          playerGlove.angle = Math.min(playerGlove.maxAngle, playerGlove.angle + 0.04);
+        }
+        
+        // Update position
+        updateGlovePosition(playerGlove);
+        
+        // Calculate direction
+        playerGlove.direction = playerGlove.angle !== prevAngle ? 
+                               (playerGlove.angle > prevAngle ? 1 : -1) : 0;
+        
+        // AI gloves
+        gloves.forEach((glove, index) => {
+          if (index === 3) return; // Skip player glove
+          
+          // Simple AI logic
+          if (Math.random() > 0.7) { // Add randomness
+            // Track ball
+            const dx = ball.x - glove.centerX;
+            const dy = ball.y - glove.centerY;
+            let targetAngle = Math.atan2(dy, dx);
+            
+            if (targetAngle < 0) targetAngle += 2 * Math.PI;
+            
+            // Move toward target
+            if (Math.abs(targetAngle - glove.angle) > 0.05) {
+              if (targetAngle > glove.angle) {
+                glove.angle = Math.min(glove.maxAngle, glove.angle + 0.02);
+              } else {
+                glove.angle = Math.max(glove.minAngle, glove.angle - 0.02);
+              }
+            }
+            
+            updateGlovePosition(glove);
+          }
+        });
+      }
+      
+      function updateGlovePosition(glove) {
+        let x = glove.centerX + Math.cos(glove.angle) * glove.radius;
+        let y = glove.centerY + Math.sin(glove.angle) * glove.radius;
+        
+        // Adjust position
+        if (glove.castleIndex === 1 || glove.castleIndex === 3) {
+          x -= GLOVE_WIDTH;
+        }
+        if (glove.castleIndex === 2 || glove.castleIndex === 3) {
+          y -= GLOVE_HEIGHT;
+        }
+        
+        glove.x = x;
+        glove.y = y;
+      }
+      
+      function updateBall() {
+        // Ball movement and physics here
+        if (!ball.held) {
+          ball.x += ball.dx;
+          ball.y += ball.dy;
+          
+          // Wall collisions
+          if (ball.x - ball.radius < 0 || ball.x + ball.radius > canvas.width) {
+            ball.dx = -ball.dx;
+          }
+          if (ball.y - ball.radius < 0 || ball.y + ball.radius > canvas.height) {
+            ball.dy = -ball.dy;
+          }
+        } else if (ball.heldBy !== null) {
+          // Update position when held
+          const holdingGlove = gloves[ball.heldBy];
+          if (holdingGlove.position === 'top') {
+            ball.x = holdingGlove.x + holdingGlove.width / 2;
+            ball.y = holdingGlove.y + holdingGlove.height + ball.radius;
+          } else if (holdingGlove.position === 'bottom') {
+            ball.x = holdingGlove.x + holdingGlove.width / 2;
+            ball.y = holdingGlove.y - ball.radius;
+          }
+        }
+      }
+      
+      function checkCollisions() {
+        // Ball-glove collisions
+        // Ball-castle collisions
+        // Implement collision detection here
+      }
+      
+      function render() {
+        // Clear canvas
+        ctx.fillStyle = '#1a202c';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        if (!gameStarted) {
+          // Draw start screen
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          
+          ctx.fillStyle = '#ffffff';
+          ctx.font = '30px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText('Castle Defender', canvas.width / 2, canvas.height / 2 - 40);
+          
+          ctx.font = '20px Arial';
+          ctx.fillText('Press any key to start', canvas.width / 2, canvas.height / 2);
+          
+          ctx.font = '16px Arial';
+          ctx.fillText('Use A/D keys to move your glove', canvas.width / 2, canvas.height / 2 + 40);
+          ctx.fillText('Press SPACE to catch and release the ball', canvas.width / 2, canvas.height / 2 + 70);
+          
+          return;
+        }
+        
+        // Draw castles
+        castles.forEach(castle => {
+          castle.blocks.forEach(block => {
+            ctx.fillStyle = castle.color;
+            ctx.fillRect(block.x, block.y, BLOCK_SIZE, BLOCK_SIZE);
+            ctx.strokeStyle = '#000';
+            ctx.strokeRect(block.x, block.y, BLOCK_SIZE, BLOCK_SIZE);
+          });
+        });
+        
+        // Draw gloves
+        gloves.forEach(glove => {
+          ctx.fillStyle = glove.color;
+          ctx.fillRect(glove.x, glove.y, glove.width, glove.height);
+          ctx.strokeStyle = '#000';
+          ctx.strokeRect(glove.x, glove.y, glove.width, glove.height);
+        });
+        
+        // Draw ball
+        if (ball) {
+          ctx.fillStyle = '#fff';
+          ctx.beginPath();
+          ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = '#000';
+          ctx.stroke();
+        }
+      }
+      
+      // Start the game
+      init();
+    })();
+  </script>
+</body>
+</html>
